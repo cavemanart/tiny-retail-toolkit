@@ -8,8 +8,10 @@ st.set_page_config(page_title="Tiny Retail Toolkit", layout="wide")
 st.title("🧸 Tiny Retail Toolkit")
 
 # --- Session state init ---
-if "items" not in st.session_state or not isinstance(st.session_state.items, list):
-    st.session_state.items = []
+if "items" not in st.session_state:
+    st.session_state["items"] = []
+elif not isinstance(st.session_state["items"], list):
+    st.session_state["items"] = []
 
 # --- Helper Functions ---
 def filter_items(items, status, query):
@@ -27,6 +29,9 @@ def filter_items(items, status, query):
 
 def download_csv(data):
     df = pd.DataFrame(data)
+    # Remove photo bytes before CSV export
+    if 'photo' in df.columns:
+        df = df.drop(columns=['photo'])
     csv = df.to_csv(index=False)
     b64 = base64.b64encode(csv.encode()).decode()
     href = f'<a href="data:file/csv;base64,{b64}" download="inventory.csv">📥 Download Inventory CSV</a>'
@@ -43,7 +48,7 @@ with st.sidebar.form(key="item_form"):
     submit = st.form_submit_button("Add Item")
 
     if submit and name:
-        st.session_state.items.append({
+        st.session_state["items"].append({
             "name": name,
             "brand": brand,
             "size": size,
@@ -59,7 +64,7 @@ st.subheader("🗃️ Inventory")
 status_filter = st.selectbox("Filter by Status", ["All", "Available", "Sold"])
 search_query = st.text_input("Search by Name")
 
-items = st.session_state.items if isinstance(st.session_state.items, list) else []
+items = st.session_state["items"]
 filtered_items = filter_items(items, status_filter, search_query)
 
 if filtered_items:
@@ -81,12 +86,13 @@ if filtered_items:
                 item["sold"] = not item["sold"]
         with cols[5]:
             if st.button("Remove", key=f"remove_{i}"):
-                st.session_state.items.remove(item)
+                st.session_state["items"].pop(i)
+                st.experimental_rerun()
 else:
     st.info("No items found.")
 
 # --- Download Link ---
-st.markdown(download_csv(st.session_state.items), unsafe_allow_html=True)
+st.markdown(download_csv(st.session_state["items"]), unsafe_allow_html=True)
 
 # --- Promo Generator ---
 st.subheader("🎉 Promo Generator")
