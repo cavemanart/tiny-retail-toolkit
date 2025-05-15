@@ -1,99 +1,79 @@
-
 import streamlit as st
 import pandas as pd
-from datetime import date
+from datetime import datetime
 
-st.set_page_config(page_title="Tiny Retail Toolkit", layout="centered")
+st.set_page_config(page_title="Tiny Retail Toolkit", layout="wide")
 
-if "inventory" not in st.session_state:
-    st.session_state.inventory = pd.DataFrame(columns=[
-        "Item Name", "Category", "Size", "Brand", "Price", "Condition", "Date Received", "Sold"
-    ])
+st.title("👕 Tiny Retail Toolkit")
+st.caption("A simple inventory manager for small children's resale shops.")
 
-if "loyalty" not in st.session_state:
-    st.session_state.loyalty = pd.DataFrame(columns=["Customer", "Visits"])
+# Initialize session state
+if "items" not in st.session_state:
+    st.session_state.items = []
 
-page = st.sidebar.radio("Choose a tool:", [
-    "Inventory Intake",
-    "Promo Generator",
-    "Loyalty Tracker"
-])
+# Add item form
+with st.form("add_item_form", clear_on_submit=True):
+    st.subheader("➕ Add New Item")
+    name = st.text_input("Item name", max_chars=50)
+    price = st.number_input("Price ($)", min_value=0.0, format="%.2f")
+    photo = st.file_uploader("Optional photo", type=["jpg", "jpeg", "png"])
+    submitted = st.form_submit_button("Add Item")
+    if submitted and name:
+        st.session_state.items.append({
+            "name": name,
+            "price": price,
+            "sold": False,
+            "added": datetime.now().strftime("%Y-%m-%d"),
+            "photo": photo.name if photo else "",
+        })
+        st.success(f"Added: {name}")
 
-if page == "Inventory Intake":
-    st.title("📦 Inventory Intake")
-    with st.form("inventory_form"):
-        col1, col2 = st.columns(2)
-        with col1:
-            item_name = st.text_input("Item Name")
-            category = st.selectbox("Category", ["Clothing", "Toys", "Books", "Other"])
-            size = st.text_input("Size")
-            brand = st.text_input("Brand")
-        with col2:
-            price = st.number_input("Price ($)", min_value=0.0, step=0.5)
-            condition = st.selectbox("Condition", ["New", "Like New", "Good", "Worn"])
-            received_date = st.date_input("Date Received", value=date.today())
-        submitted = st.form_submit_button("Add Item")
-        if submitted:
-            new_row = pd.DataFrame.from_dict({
-                "Item Name": [item_name],
-                "Category": [category],
-                "Size": [size],
-                "Brand": [brand],
-                "Price": [price],
-                "Condition": [condition],
-                "Date Received": [received_date],
-                "Sold": [False]
-            })
-            st.session_state.inventory = pd.concat([st.session_state.inventory, new_row], ignore_index=True)
-            st.success("Item added!")
+# Sidebar filters
+st.sidebar.header("🔍 Filters & Tools")
+status_filter = st.sidebar.selectbox("Filter by status", ["All", "Available", "Sold"])
+search_query = st.sidebar.text_input("Search by name")
 
-    st.subheader("Current Inventory")
-    df = st.session_state.inventory.copy()
-    sold_toggle = st.checkbox("Show only unsold items", value=True)
-    if sold_toggle:
-        df = df[df["Sold"] == False]
-    st.dataframe(df, use_container_width=True)
-    st.download_button("Download CSV", data=df.to_csv(index=False), file_name="inventory.csv")
+# Filter logic
+filtered_items = [
+    item for item in st.session_state.items
+    if (status_filter == "All"
+        or (status_filter == "Available" and not item["sold"])
+        or (status_filter == "Sold" and item["sold"]))
+    and (search_query.lower() in item["name"].lower())
+]
 
-elif page == "Promo Generator":
-    st.title("📣 Promo Generator")
-    with st.form("promo_form"):
-        title = st.text_input("Event Name", "Spring Sale")
-        details = st.text_area("Details", "30% off all toys and jackets!")
-        start_date = st.date_input("Start Date", date.today())
-        end_date = st.date_input("End Date")
-        platform = st.selectbox("Platform", ["Instagram", "Facebook", "Text Message"])
-        submitted = st.form_submit_button("Generate Promo")
+# Inventory overview
+st.subheader("📦 Inventory")
+if filtered_items:
+    for i, item in enumerate(filtered_items):
+        cols = st.columns([4, 1, 1, 1])
+        status = "✅ Sold" if item["sold"] else "🟢 Available"
+        cols[0].markdown(f"**{item['name']}**  \n${item['price']}  \n*Added:* {item['added']}  \n*Status:* {status}")
+        if cols[1].button("Toggle", key=f"toggle_{i}"):
+            original_index = st.session_state.items.index(item)
+            st.session_state.items[original_index]["sold"] = not item["sold"]
+            st.experimental_rerun()
+        if cols[2].button("🗑️", key=f"delete_{i}"):
+            original_index = st.session_state.items.index(item)
+            st.session_state.items.pop(original_index)
+            st.experimental_rerun()
+else:
+    st.info("No items match your filters.")
 
-    if submitted:
-        promo_text = f"{title} is here! 🎉\n{details}\nCome see us between {start_date.strftime('%b %d')} and {end_date.strftime('%b %d')}!"
-        if platform == "Instagram":
-            promo_text += "\n#resalekids #momlife #dealsforkids"
-        elif platform == "Facebook":
-            promo_text += "\n🧸👕👶 Come shop local with us!"
-        elif platform == "Text Message":
-            promo_text = f"{title}: {details} ({start_date.strftime('%m/%d')}–{end_date.strftime('%m/%d')})"
+# Export to CSV
+if st.session_state.items:
+    df = pd.DataFrame(st.session_state.items)
+    st.download_button("⬇️ Export Inventory to CSV", data=df.to_csv(index=False), file_name="inventory.csv", mime="text/csv")
 
-        st.subheader("Promo Caption")
-        st.code(promo_text)
-        st.download_button("Download Promo Text", promo_text, file_name="promo.txt")
+# Summary stats
+st.sidebar.markdown("---")
+st.sidebar.subheader("📊 Summary")
+total = len(st.session_state.items)
+sold = sum(item["sold"] for item in st.session_state.items)
+available = total - sold
+value = sum(item["price"] for item in st.session_state.items if not item["sold"])
 
-elif page == "Loyalty Tracker":
-    st.title("💳 Loyalty Tracker")
-    with st.form("loyalty_form"):
-        name = st.text_input("Customer Name or Initials")
-        submitted = st.form_submit_button("Add Visit")
-        if submitted and name:
-            if name in st.session_state.loyalty.Customer.values:
-                st.session_state.loyalty.loc[st.session_state.loyalty.Customer == name, "Visits"] += 1
-            else:
-                st.session_state.loyalty = pd.concat([
-                    st.session_state.loyalty,
-                    pd.DataFrame({"Customer": [name], "Visits": [1]})
-                ], ignore_index=True)
-            st.success("Visit recorded!")
-
-    st.subheader("Customer Loyalty List")
-    df_loyalty = st.session_state.loyalty.copy()
-    st.dataframe(df_loyalty)
-    st.download_button("Download Loyalty List", data=df_loyalty.to_csv(index=False), file_name="loyalty.csv")
+st.sidebar.metric("Total Items", total)
+st.sidebar.metric("Available", available)
+st.sidebar.metric("Sold", sold)
+st.sidebar.metric("Unsold Value ($)", f"${value:.2f}")
