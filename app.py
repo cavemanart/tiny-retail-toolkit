@@ -1,47 +1,17 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+from io import BytesIO
+import base64
 
 st.set_page_config(page_title="Tiny Retail Toolkit", layout="wide")
+st.title("🧸 Tiny Retail Toolkit")
 
-st.title("👕 Tiny Retail Toolkit")
-st.caption("A simple inventory manager for small children's resale shops.")
-
-# Initialize session state list once
-if "items" not in st.session_state:
+# --- Session state init ---
+if "items" not in st.session_state or not isinstance(st.session_state.items, list):
     st.session_state.items = []
 
-# Add item form
-with st.form("add_item_form", clear_on_submit=True):
-    st.subheader("➕ Add New Item")
-    name = st.text_input("Item name", max_chars=50)
-    price = st.number_input("Price ($)", min_value=0.0, format="%.2f")
-    photo = st.file_uploader("Take or upload photo", type=["jpg", "jpeg", "png"])
-    submitted = st.form_submit_button("Add Item")
-
-    if submitted:
-        if not name.strip():
-            st.error("Please enter a valid item name.")
-        else:
-            photo_bytes = photo.getvalue() if photo else None
-            photo_name = photo.name if photo else ""
-            st.session_state.items.append({
-                "name": name.strip(),
-                "price": price,
-                "sold": False,
-                "added": datetime.now().strftime("%Y-%m-%d"),
-                "photo_bytes": photo_bytes,
-                "photo_name": photo_name,
-            })
-            st.success(f"Added: {name.strip()}")
-            st.experimental_rerun()  # Refresh to update item list immediately
-
-# Sidebar filters
-st.sidebar.header("🔍 Filters & Tools")
-status_filter = st.sidebar.selectbox("Filter by status", ["All", "Available", "Sold"])
-search_query = st.sidebar.text_input("Search by name")
-
-# Filter items
+# --- Helper Functions ---
 def filter_items(items, status, query):
     filtered = []
     for item in items:
@@ -55,69 +25,84 @@ def filter_items(items, status, query):
             filtered.append(item)
     return filtered
 
-filtered_items = filter_items(st.session_state.items, status_filter, search_query)
+def download_csv(data):
+    df = pd.DataFrame(data)
+    csv = df.to_csv(index=False)
+    b64 = base64.b64encode(csv.encode()).decode()
+    href = f'<a href="data:file/csv;base64,{b64}" download="inventory.csv">📥 Download Inventory CSV</a>'
+    return href
 
-# Inventory display
-st.subheader("📦 Inventory")
+# --- Sidebar Form to Add Item ---
+st.sidebar.header("Add New Item")
+with st.sidebar.form(key="item_form"):
+    name = st.text_input("Item Name")
+    brand = st.text_input("Brand")
+    size = st.text_input("Size")
+    price = st.number_input("Price", min_value=0.0, step=0.5)
+    photo = st.file_uploader("Photo", type=["jpg", "jpeg", "png"])
+    submit = st.form_submit_button("Add Item")
+
+    if submit and name:
+        st.session_state.items.append({
+            "name": name,
+            "brand": brand,
+            "size": size,
+            "price": price,
+            "sold": False,
+            "photo": photo.getvalue() if photo else None,
+            "added": datetime.now().strftime("%Y-%m-%d %H:%M")
+        })
+        st.success("Item added!")
+
+# --- Main Inventory View ---
+st.subheader("🗃️ Inventory")
+status_filter = st.selectbox("Filter by Status", ["All", "Available", "Sold"])
+search_query = st.text_input("Search by Name")
+
+items = st.session_state.items if isinstance(st.session_state.items, list) else []
+filtered_items = filter_items(items, status_filter, search_query)
+
 if filtered_items:
     for i, item in enumerate(filtered_items):
-        cols = st.columns([2, 4, 1, 1])
-        
-        if item["photo_bytes"]:
-            cols[0].image(item["photo_bytes"], width=80)
-        else:
-            cols[0].write("No photo")
-        
-        status = "✅ Sold" if item["sold"] else "🟢 Available"
-        cols[1].markdown(
-            f"**{item['name']}**  \n"
-            f"Price: ${item['price']:.2f}  \n"
-            f"*Added:* {item['added']}  \n"
-            f"*Status:* {status}"
-        )
-        
-        if cols[2].button("Toggle Sold", key=f"toggle_{i}"):
-            # Find original index in session state items
-            original_index = st.session_state.items.index(item)
-            st.session_state.items[original_index]["sold"] = not item["sold"]
-            st.experimental_rerun()
-        
-        if cols[3].button("🗑️ Delete", key=f"delete_{i}"):
-            original_index = st.session_state.items.index(item)
-            st.session_state.items.pop(original_index)
-            st.experimental_rerun()
+        cols = st.columns([1, 2, 1, 1, 1, 1])
+        with cols[0]:
+            if item["photo"]:
+                st.image(item["photo"], width=80)
+            else:
+                st.write("📦")
+        with cols[1]:
+            st.markdown(f"**{item['name']}**\n{item['brand']} - {item['size']}")
+        with cols[2]:
+            st.write(f"${item['price']:.2f}")
+        with cols[3]:
+            st.write("✅" if item["sold"] else "❌")
+        with cols[4]:
+            if st.button("Toggle Sold", key=f"sold_{i}"):
+                item["sold"] = not item["sold"]
+        with cols[5]:
+            if st.button("Remove", key=f"remove_{i}"):
+                st.session_state.items.remove(item)
 else:
-    st.info("No items match your filters.")
+    st.info("No items found.")
 
-# Export inventory CSV (no photos)
-if st.session_state.items:
-    df = pd.DataFrame([
-        {
-            "name": item["name"],
-            "price": item["price"],
-            "sold": item["sold"],
-            "added": item["added"],
-            "photo_name": item["photo_name"],
-        }
-        for item in st.session_state.items
-    ])
-    csv_data = df.to_csv(index=False)
-    st.download_button(
-        label="⬇️ Export Inventory to CSV",
-        data=csv_data,
-        file_name="inventory.csv",
-        mime="text/csv"
-    )
+# --- Download Link ---
+st.markdown(download_csv(st.session_state.items), unsafe_allow_html=True)
 
-# Sidebar summary
-st.sidebar.markdown("---")
-st.sidebar.subheader("📊 Summary")
-total = len(st.session_state.items)
-sold = sum(item["sold"] for item in st.session_state.items)
-available = total - sold
-value = sum(item["price"] for item in st.session_state.items if not item["sold"])
+# --- Promo Generator ---
+st.subheader("🎉 Promo Generator")
+promo_text = st.text_input("Enter promo description (e.g. Buy 2 Get 1 Free!)")
+promo_code = st.text_input("Promo Code (optional)")
+if st.button("Generate Promo"):
+    st.success(f"Use promo: **{promo_text}** {'with code **' + promo_code + '**' if promo_code else ''}!")
 
-st.sidebar.metric("Total Items", total)
-st.sidebar.metric("Available", available)
-st.sidebar.metric("Sold", sold)
-st.sidebar.metric("Unsold Value ($)", f"${value:.2f}")
+# --- Loyalty Card Generator ---
+st.subheader("💳 Loyalty Card")
+shop_name = st.text_input("Shop Name")
+reward = st.text_input("Reward After N Visits")
+visit_count = st.number_input("How many visits to reward?", min_value=1, step=1)
+if st.button("Generate Loyalty Card"):
+    st.markdown(f"**{shop_name} Loyalty Card**\n\n⭐ Collect a star on each visit!\n⭐ After **{visit_count}** visits, earn: **{reward}**")
+
+# --- Google Sheets Connection Placeholder ---
+st.markdown("---")
+st.info("🔗 Google Sheets integration coming soon for persistent backup!")
