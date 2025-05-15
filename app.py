@@ -82,7 +82,8 @@ with st.sidebar.form(key="item_form"):
 
 # --- Settings: Enable Google Sheets ---
 st.sidebar.header("Settings")
-st.session_state.use_gsheets = st.sidebar.checkbox("Enable Google Sheets Sync", value=st.session_state.use_gsheets)
+mode = st.sidebar.radio("Storage Mode", ["Local Only", "Google Sheets"], index=1 if st.session_state.use_gsheets else 0)
+st.session_state.use_gsheets = mode == "Google Sheets"
 if st.session_state.use_gsheets:
     st.sidebar.success("Google Sheets sync is ON.")
 else:
